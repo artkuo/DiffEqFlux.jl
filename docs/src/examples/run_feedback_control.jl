@@ -72,6 +72,7 @@ function predict_univ(θ)
                               saveat = tsteps))
   # predict_univ(θ)[1,:] controller outputs vs time
   # predict_univ(θ)[2,:] system output vs time
+  # predict_univ(θ)[3,:] system output prediction vs time
 end
 
 loss_univ(θ) = sum(abs2, predict_univ(θ)[2,:] .- 1) +
@@ -82,7 +83,8 @@ l = loss_univ(θ)
 
 list_plots = []
 iter = 0
-function callback2(θ, l)
+# A callback that prints loss and plots system behavior
+function callback(θ, l)
   global list_plots, iter
 
   if iter == 0
@@ -90,9 +92,10 @@ function callback2(θ, l)
   end
   iter += 1
 
-  println(l)
+  println("iteration $iter  loss = $l")
 
-  plt = plot(predict_univ(θ)', ylim = (0, 6), label=["control" "system" "pred_system"])
+  plt = plot(predict_univ(θ)', ylim = (0, 6), label=["control" "system" "pred_system"],
+    xlabel="time")
   push!(list_plots, plt)
   display(plt)
   return false
@@ -102,8 +105,8 @@ end
 
 result_univ = DiffEqFlux.sciml_train(loss_univ, θ,
                                      BFGS(initial_stepnorm = 0.01),
-                                     cb = callback2,
-                                     allow_f_increases = false)
+                                     cb = callback,
+                                     allow_f_increases = true)
 
 ##
 u0star = result_univ.minimizer[1]
