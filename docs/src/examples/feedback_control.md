@@ -4,10 +4,9 @@ You can also mix a known differential equation and a neural differential
 equation, so that the parameters and the neural network are estimated
 simultaneously!
 
-We will assume that we know the dynamics of the second equation
-(linear dynamics), and our goal is to find a neural network that is dependent
-on the current state of the dynamical system that will control the second
-equation to stay close to 1.
+We will assume that we know the dynamics of a system to be controlled (first-order 
+linear dynamics), and our goal is to find a neural network that will act as a 
+dynamical feedback controller to force the system outputs to stay close to 1.
 
 ```julia
 using DiffEqFlux, Flux, Optim, OrdinaryDiffEq, Plots
