@@ -2,6 +2,8 @@
 
 # diffeqflux stuff
 
+# Here I'm attempting to strip out the model ID/change part entirely
+
 using DiffEqFlux, Flux, Optim, OrdinaryDiffEq, Plots
 
 u0 = 1.1f0  # initial state of known system to be controlled
@@ -20,9 +22,15 @@ p_model = initial_params(model_univ)
 n_weights = length(p_model)
 
 # Parameters of the known system (second-order linear dynamics)
-p_system = Float32[0.5, -0.5]
+p_system = Float32[0.3, -0.5]
+# I found [0.5, -0.5] not to converge well, apparently because
+# it's quite unstable and random initial model weights calculations
+# yield bad behavior. 
+# A less unstable system converges more reliably
+# but even here it depends on initial params and sometimes
+# fails.
 
-p_all = [p_model; p_system]
+p_all = p_model # [p_model; p_system]
 θ = Float32[u0; p_all]        # sciml will train both initial state and params
 # θ = initial state of known system, NN weights, and known system coefs
 
@@ -30,8 +38,8 @@ p_all = [p_model; p_system]
 function dudt_univ!(du, u, p, t)
     # Destructure the parameters
     model_weights = p[1:n_weights]
-    α = p[end - 1] # system ODE's linear constant coefficients
-    β = p[end]
+    α = p_system[1] # system ODE's linear constant coefficients
+    β = p_system[2] # not modifiable
 
     # The neural network outputs a control taken by the system
     # The system then produces an output
@@ -56,9 +64,11 @@ sol_univ = solve(prob_univ, Tsit5(),abstol = 1e-8, reltol = 1e-6)
 function predict_univ(θ)
   return Array(solve(prob_univ, Tsit5(), u0=[0f0, θ[1]], p=θ[2:end],
                               saveat = tsteps))
+  # predict_univ(θ)[1,:] controller outputs vs time
+  # predict_univ(θ)[2,:] system output vs time
 end
 
-loss_univ(θ) = sum(abs2, predict_univ(θ)[2,:] .- 1)
+loss_univ(θ) = sum(abs2, predict_univ(θ)[2,:] .- 1) 
 l = loss_univ(θ)
 
 ##
@@ -88,11 +98,13 @@ result_univ = DiffEqFlux.sciml_train(loss_univ, θ,
                                      cb = callback,
                                      allow_f_increases = false)
 
-
+##
 u0star = result_univ.minimizer[1]
 pstar = result_univ.minimizer[2:n_weights+1]
 αβstar = result_univ.minimizer[end-length(p_system)+1:end]
 θstar = result_univ.minimizer
+
+predict_univ(θstar)
 # I believe this system is finding an easy system to control,
 # because it gets αstar = -61.7, βstar = 8.62, so that the
 # plant dynamics are xdot = α x + β control. The system is
