@@ -23,6 +23,8 @@ n_weights = length(p_model)
 
 # Parameters of the known system (second-order linear dynamics)
 p_system = Float32[0.3, -0.5]
+# Parameters of the system to be identified, initial guess 
+p_systemhat = Float32[-0.1, 1.] # initial guess for system
 # I found [0.5, -0.5] not to converge well, apparently because
 # it's quite unstable and random initial model weights calculations
 # yield bad behavior. 
@@ -38,44 +40,49 @@ p_all = p_model # [p_model; p_system]
 function dudt_univ!(du, u, p, t)
     # Destructure the parameters
     model_weights = p[1:n_weights]
+    αhat = p[end-1] # system params to be identified
+    βhat = p[end]
     α = p_system[1] # system ODE's linear constant coefficients
     β = p_system[2] # not modifiable
 
     # The neural network outputs a control taken by the system
     # The system then produces an output
-    model_control, system_output = u
+    model_control, system_output, system_outputhat = u
 
     # Dynamics of the control and system
-    dmodel_control = model_univ(u, model_weights)[1]
+    dmodel_control = model_univ(u[1:2], model_weights)[1]
     dsystem_output = α*system_output + β*model_control
+    dsystem_outputhat = αhat*system_outputhat + βhat*model_control
 
     # Update in place
     du[1] = dmodel_control
     du[2] = dsystem_output
+    du[3] = dsystem_outputhat
 end
 
 ##
 # initial condition is a model control = 0, system state = u0
-prob_univ = ODEProblem(dudt_univ!, [0f0, u0], tspan, p_all)
+prob_univ = ODEProblem(dudt_univ!, [0f0, u0,u0], tspan, p_all)
 sol_univ = solve(prob_univ, Tsit5(),abstol = 1e-8, reltol = 1e-6)
 
 # 
 # θ = initial state of known system, NN weights, and known system coefs
 function predict_univ(θ)
-  return Array(solve(prob_univ, Tsit5(), u0=[0f0, θ[1]], p=θ[2:end],
+  return Array(solve(prob_univ, Tsit5(), u0=[0f0, θ[1],θ[1]], p=θ[2:end],
                               saveat = tsteps))
   # predict_univ(θ)[1,:] controller outputs vs time
   # predict_univ(θ)[2,:] system output vs time
 end
 
-loss_univ(θ) = sum(abs2, predict_univ(θ)[2,:] .- 1) 
+loss_univ(θ) = sum(abs2, predict_univ(θ)[2,:] .- 1) +
+  sum(abs2, diff(predict_univ(θ)[2:3,:],dims=1))
 l = loss_univ(θ)
 
 ##
 
 list_plots = []
 iter = 0
-callback = function (θ, l)
+function callback2(θ, l)
   global list_plots, iter
 
   if iter == 0
@@ -85,7 +92,7 @@ callback = function (θ, l)
 
   println(l)
 
-  plt = plot(predict_univ(θ)', ylim = (0, 6))
+  plt = plot(predict_univ(θ)', ylim = (0, 6), label=["control" "system" "pred_system"])
   push!(list_plots, plt)
   display(plt)
   return false
@@ -95,7 +102,7 @@ end
 
 result_univ = DiffEqFlux.sciml_train(loss_univ, θ,
                                      BFGS(initial_stepnorm = 0.01),
-                                     cb = callback,
+                                     cb = callback2,
                                      allow_f_increases = false)
 
 ##
